@@ -1,0 +1,88 @@
+"""Evaluate fixed baseline and weighted-linear peptide rankings.
+Run from project root:
+ python src/models/baseline_linear_evaluation.py
+Optional: --holdout-keys data/processed/holdout_keys.csv
+Holdout keys CSV must contain protein,start,end for the three held-out positives.
+Without it, all 24 T-cell positives are used and results are exploratory.
+"""
+import argparse
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve, precision_recall_curve
+
+KEY=['protein','start','end']
+
+def main():
+ p=argparse.ArgumentParser()
+ p.add_argument('--features',default='data/processed/ranking_features.csv')
+ p.add_argument('--baseline',default='results/baseline/baseline_rankings.csv')
+ p.add_argument('--linear',default='results/linear/rankings.csv')
+ p.add_argument('--holdout-keys',default=None,help='CSV with protein,start,end of held-out positives')
+ p.add_argument('--out',default='results/baseline_linear/evaluation')
+ a=p.parse_args()
+ out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
+ f=pd.read_csv(a.features);b=pd.read_csv(a.baseline);l=pd.read_csv(a.linear)
+ for name,d in [('features',f),('baseline',b),('linear',l)]:
+  if d.duplicated(KEY).any():raise ValueError(f'Duplicate protein/start/end keys in {name}')
+ d=f[KEY+['peptide','tcell_evidence']].merge(b[KEY+['BA_rank']],on=KEY,validate='one_to_one').merge(l[KEY+['linear_score']],on=KEY,validate='one_to_one')
+ if len(d)!=len(f):raise ValueError('Ranking merge lost rows')
+ d['tcell_evidence']=pd.to_numeric(d.tcell_evidence).fillna(0).astype(int)
+ n_all=int(d.tcell_evidence.sum())
+ if a.holdout_keys:
+  h=pd.read_csv(a.holdout_keys)
+  if not set(KEY).issubset(h.columns):raise ValueError('Holdout CSV requires protein,start,end')
+  h=h[KEY].drop_duplicates().assign(_holdout=1)
+  d=d.merge(h,on=KEY,how='left',validate='one_to_one')
+  excluded=d._holdout.eq(1)
+  if (d.loc[excluded,'tcell_evidence']!=1).any():raise ValueError('Holdout keys must identify T-cell positives')
+  d=d.loc[~excluded].copy()
+  note=f'Excluding {int(excluded.sum())} holdout positives; {int(d.tcell_evidence.sum())} development positives'
+ else:note=f'EXPLORATORY: all {n_all} positives included; no permanent holdout excluded'
+ d['Baseline']=-pd.to_numeric(d.BA_rank)
+ d['Linear']=pd.to_numeric(d.linear_score)
+ y=d.tcell_evidence.to_numpy();n=len(y);pos=int(y.sum())
+ if not 0<pos<n:raise ValueError('Need both labelled positives and unlabelled candidates')
+ ks=sorted(set([10,25,50,100,200,500,1000,n]))
+ rows=[];curves=[]
+ for name in ['Baseline','Linear']:
+  scores=d[name].to_numpy();order=np.argsort(-scores,kind='stable');sorted_y=y[order];cumulative=np.cumsum(sorted_y)
+  auc=roc_auc_score(y,scores);ap=average_precision_score(y,scores)
+  for k in ks:
+   hits=int(cumulative[k-1]);precision=hits/k;recall=hits/pos;enrichment=precision/(pos/n)
+   rows.append(dict(model=name,k=k,known_positives=hits,precision_at_k=precision,recall_at_k=recall,enrichment_at_k=enrichment,auc=auc,average_precision=ap))
+  fpr,tpr,_=roc_curve(y,scores);prec,rec,_=precision_recall_curve(y,scores)
+  curves.append((name,fpr,tpr,prec,rec))
+ pd.DataFrame(rows).to_csv(out/'metrics_by_k.csv',index=False)
+ pd.DataFrame([dict(model=name,auc=roc_auc_score(y,d[name]),average_precision=average_precision_score(y,d[name]),positives=pos,candidates=n) for name in ['Baseline','Linear']]).to_csv(out/'metrics_summary.csv',index=False)
+ d[KEY+['peptide','tcell_evidence','Baseline','Linear']].to_csv(out/'scores_and_labels.csv',index=False)
+ for field,ylabel,filename in [('enrichment_at_k','Enrichment over random selection (×)','enrichment_by_k.png'),('known_positives','Known T-cell positives retrieved','cumulative_positives.png'),('recall_at_k','Recall of known positives','recall_by_k.png')]:
+  fig,ax=plt.subplots(figsize=(8,4.7))
+  for name in ['Baseline','Linear']:
+   z=pd.DataFrame(rows);z=z[(z.model==name)&(z.k<n)];ax.plot(z.k,z[field],marker='o',label=name)
+  if field=='enrichment_at_k':ax.axhline(1,linestyle='--',color='gray',label='Random expectation')
+  ax.set(xlabel='Number of top-ranked peptides (k)',ylabel=ylabel);ax.legend();ax.grid(alpha=.2);fig.tight_layout();fig.savefig(out/filename,dpi=200);plt.close(fig)
+ fig,axs=plt.subplots(1,2,figsize=(11,4.3))
+ for name,fpr,tpr,prec,rec in curves:
+  axs[0].plot(fpr,tpr,label=f'{name} (AUC {roc_auc_score(y,d[name]):.3f})')
+  axs[1].plot(rec,prec,label=f'{name} (AP {average_precision_score(y,d[name]):.3f})')
+ axs[0].plot([0,1],[0,1],'--',color='gray');axs[0].set(xlabel='False positive rate (unlabelled treated as negative)',ylabel='True positive rate',title='ROC')
+ axs[1].axhline(pos/n,linestyle='--',color='gray');axs[1].set(xlabel='Recall',ylabel='Precision',title='Precision–recall')
+ for ax in axs:ax.legend();ax.grid(alpha=.2)
+ fig.tight_layout();fig.savefig(out/'roc_pr_curves.png',dpi=200);plt.close(fig)
+ # Fixed-weight ablation: remove one component, then renormalise remaining weights.
+ needed=['mhc_binding_feature','cleavage_feature','expression_feature']
+ if set(needed).issubset(l.columns):
+  weights=np.array([.5,.25,.25]);z=l[KEY+needed].merge(d[KEY+['tcell_evidence']],on=KEY)
+  x=z[needed].to_numpy();ab=[]
+  for removed in [None,0,1,2]:
+   w=weights.copy()
+   if removed is not None:w[removed]=0
+   w/=w.sum();score=x@w;yy=z.tcell_evidence.to_numpy();rank=np.argsort(-score,kind='stable');k=min(100,len(rank));hits=int(yy[rank[:k]].sum())
+   ab.append(dict(condition='Full' if removed is None else f'Without {needed[removed]}',auc=roc_auc_score(yy,score),average_precision=average_precision_score(yy,score),hits_at_100=hits,enrichment_at_100=(hits/k)/(yy.mean())))
+  pd.DataFrame(ab).to_csv(out/'linear_weight_ablation.csv',index=False)
+ print(note);print(pd.read_csv(out/'metrics_summary.csv').to_string(index=False));print('Saved to',out)
+ print('CAUTION: unlabelled peptides are not confirmed negatives; metrics measure retrieval of documented evidence.')
+
+if __name__=='__main__':main()

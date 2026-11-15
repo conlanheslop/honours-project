@@ -1,0 +1,13 @@
+feature,n_unique,max_unique_within_protein,kind
+length,4,4,peptide-level
+BA_ic50,6433,1994,peptide-level
+BA_rank,247,210,peptide-level
+EL_score,1946,1005,peptide-level
+EL_rank,229,197,peptide-level
+cleavage_score,1660,501,peptide-level
+mhcflurry_processing_score,6644,2002,peptide-level
+expression_tpm,4,1,protein-level
+mutation_status,2,1,protein-level
+hla_frequency,1,1,constant
+hydrophobicity,1882,1031,peptide-level
+molecular_weight,5890,1773,peptide-level

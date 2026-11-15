@@ -29,9 +29,6 @@ htmlcov/
 .env.*
 !.env.example
 
-# Generated model rankings and evaluation outputs
-results/
-
 # Downloaded/generated prediction inputs and outputs
 data/raw/mhcflurry/
 data/raw/tcga/laml_expression_files.tar.gz
