@@ -1,0 +1,5 @@
+protein,mutated_samples,cohort_samples,mutation_status
+CCNA1,4,4,1.0
+HOXA9,0,4,0.0
+PRAME,0,4,0.0
+WT1,0,4,0.0

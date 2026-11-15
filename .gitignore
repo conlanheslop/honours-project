@@ -1,0 +1,47 @@
+# Python environments and bytecode
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging and build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test, type-checker, and linter caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Generated model rankings and evaluation outputs
+results/
+
+# Downloaded/generated prediction inputs and outputs
+data/raw/mhcflurry/
+data/raw/tcga/laml_expression_files.tar.gz
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Local editor and operating-system files
+.idea/
+.DS_Store
+Thumbs.db
