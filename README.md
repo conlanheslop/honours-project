@@ -105,6 +105,7 @@ Run the evaluation scripts after generating the corresponding rankings:
 python src/models/random_forest_evaluation.py
 python src/models/xgboost_evaluation.py
 python src/models/random_forest_stability.py
+python src/models/feature_ablation.py
 ```
 
 The Random Forest and XGBoost evaluation scripts accept `--fast` for a
@@ -112,6 +113,24 @@ reduced diagnostic run. Run Random Forest evaluation before XGBoost
 evaluation if you want XGBoost's side-by-side comparison with the Random
 Forest results. Evaluation tables and plots are saved under each model's
 `results/<model>/evaluation/` directory.
+
+The feature-ablation script reuses the grouped evaluation folds and the
+persisted holdout split without using the holdout positives for feature
+selection. It writes repeat-level baseline and ablation metrics, plus
+heatmaps, under `results/feature_ablation/`. `--fast` is available for a
+non-reportable smoke test; the default run uses all three evaluation repeats.
+It also writes `all_model_feature_effect_heatmap.png`, a four-model summary
+for the binding-only baseline, Linear, Random Forest, and XGBoost.
+`feature_effect_summary.csv` contains the metric changes behind that plot.
+The summary averages the bounded AUC, average-precision, and precision@100
+changes in percentage points (precision@100 represents the top-100 metrics
+without counting its equivalent recall and enrichment measures again);
+positive values mean performance improved when the feature was removed.
+Linear and baseline ablations are deterministic score removals, while the
+supervised models use their repeated grouped-CV ablations. The direct-model
+scores are calculated on the non-holdout pool only. Use `--summary-only` to
+rebuild this plot from existing ablation CSVs without retraining the
+supervised models.
 
 ## Project layout
 
